@@ -128,6 +128,8 @@
 		setCwd,
 		type FilesystemFile
 	} from '$lib/apis/machines';
+	import { pendingPolicy, ensurePendingChat } from '$lib/apis/machines/pendingChats';
+	import { machineRequest } from '$lib/apis/machines';
 	import { generateOpenAIChatCompletion, getErrorMessage } from '$lib/apis/openai';
 	import { processUrl, processWebSearch } from '$lib/apis/retrieval';
 	import {
@@ -1315,6 +1317,7 @@
 							cwd: machineContext?.currentDirectory ?? null
 						});
 				if (signal.aborted || machineId !== $selectedMachineId) return;
+				if (!folder && environment !== getAgentEnvironment()) return;
 				if (
 					folder &&
 					($selectedFolder?.id !== folder.id ||
@@ -4580,6 +4583,89 @@
 		initializedMachineChatId = id;
 	};
 
+	let environmentStatus = '';
+	let environmentError = '';
+	let pendingPreparationKey = '';
+	let pendingPreparationChatId = '';
+	let pendingPreparationGeneration = 0;
+
+	const preparePendingEnvironment = async (machineId: string, folderId: string | null, retry = false) => {
+		const key = JSON.stringify([machineId, folderId]);
+		if (!retry && pendingPreparationKey === key) return;
+		pendingPreparationKey = key;
+		environmentStatus = 'starting';
+		environmentError = '';
+		const generation = ++pendingPreparationGeneration;
+		const initialHistory = history;
+		const current = () => generation === pendingPreparationGeneration &&
+			$selectedMachineId === machineId && history === initialHistory;
+		try {
+			const policy = await pendingPolicy(machineId);
+			if (!current()) return;
+			if (!policy.enabled) { environmentStatus = ''; return; }
+			environmentStatus = 'starting';
+			environmentError = '';
+			let prepared;
+			if (retry && pendingPreparationChatId && $chatId === pendingPreparationChatId) {
+				prepared = chat;
+			} else {
+				prepared = await ensurePendingChat(machineId, folderId, params);
+			}
+			if (!current()) return;
+			chat = prepared;
+			pendingPreparationChatId = prepared.id;
+			draftFolderId = folderId;
+			machineContext = { machineId, currentDirectory: prepared.chat.working_directory };
+			await chatId.set(prepared.id);
+			if (!embedded) window.history.replaceState(window.history.state, '', `/c/${prepared.id}`);
+			selectedFolder.set(null);
+			const target = resolveMachineTarget(machineId, $machines ?? [], localStorage.token, {
+				chatId: prepared.id, modelId: null
+			});
+			if (!target) throw new Error('Machine is unavailable');
+			await initializeMachineDirectory(prepared.id, machineContext);
+			const info = await machineRequest<any>(target, '/system/info');
+			if (info.setup && info.setup.status !== 'ok') throw new Error('Environment setup did not complete. See System info.');
+			if (!current()) return;
+			environmentStatus = 'discovering';
+			await refreshAgentModels();
+			if (!current()) return;
+			const native = $models.filter((m) => m.agent?.machine_id === machineId);
+			if (!native.length) throw new Error('No coding-agent models were discovered. Check the agent login and configuration.');
+			const selected = selectedModels.filter((id) => native.some((m) => m.id === id));
+			selectedModels = selected.length ? selected : [''];
+			await refreshChatList(localStorage.token);
+			environmentStatus = '';
+		} catch (error) {
+			if (current()) {
+				environmentError = String(error);
+				environmentStatus = 'error';
+			}
+		}
+	};
+
+	const retryEnvironment = () => {
+		if ($selectedMachineId) void preparePendingEnvironment($selectedMachineId, draftFolderId ?? null, true);
+	};
+
+	let pendingObservedMachine: string | null = null;
+	$: if ($selectedMachineId !== pendingObservedMachine) {
+		pendingObservedMachine = $selectedMachineId;
+		pendingPreparationGeneration++;
+		pendingPreparationKey = '';
+		environmentStatus = '';
+		environmentError = '';
+	}
+
+	$: if (loading) {
+		pendingPreparationGeneration++;
+		pendingPreparationKey = '';
+		environmentStatus = '';
+	}
+	$: if (!loading && !embedded && !$chatId && !$temporaryChat && $selectedMachineId?.startsWith('template:')) {
+		void preparePendingEnvironment($selectedMachineId, $selectedFolder?.id ?? draftFolderId ?? null);
+	}
+
 	const getChatId = async (_history: typeof history, inputFiles = files) => {
 		let _chatId = $chatId;
 		const machineId =
@@ -4648,6 +4734,7 @@
 				return { status: 'rejected' };
 			}
 		}
+		if (environmentStatus) return { status: 'deferred' };
 		if (processing === 'uploading') return { status: 'deferred' };
 		if ($models === null) return { status: 'deferred' };
 		emitTyping(false);
@@ -6407,6 +6494,7 @@
 									class=" pb-2 {dragged ? 'z-0' : 'z-10'}"
 								>
 									<MessageInput
+                                        {environmentStatus} {environmentError} {retryEnvironment}
 										{selectedMachineId}
 										{machineSkills}
 										{messagesContainerId}
@@ -6531,6 +6619,7 @@
 								{/if}
 								<div id={embedded ? messageInputDropzoneId : undefined} class="pb-2 z-10">
 									<MessageInput
+                                        {environmentStatus} {environmentError} {retryEnvironment}
 										{selectedMachineId}
 										{machineSkills}
 										{messagesContainerId}
@@ -6615,6 +6704,7 @@
 									: 'items-center'}"
 							>
 								<Placeholder
+                                    {environmentStatus} {environmentError} {retryEnvironment}
 									onNewFolderChat={() => tabs?.openFeatureTab('chat')}
 									bind:folderTabActions
 									{selectedMachineId}

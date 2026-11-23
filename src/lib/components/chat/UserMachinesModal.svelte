@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { getContext, onMount } from 'svelte';
+	import { pendingPolicy, savePendingPolicy } from '$lib/apis/machines/pendingChats';
 	import { toast } from 'svelte-sonner';
 	import { v4 as uuidv4 } from 'uuid';
 	import Modal from '$lib/components/common/Modal.svelte';
@@ -76,6 +77,8 @@
 	let connectionId = connections[0]?.id ?? '';
 	let name = '';
 	let scope = '';
+	let prepareOnOpen = false;
+	let pendingExpiry = 15;
 	let image = '';
 	let cpu = '';
 	let memory = '';
@@ -187,6 +190,9 @@
 			templatesApi(`${path(machineId)}/access`).catch(() => []),
 			loadInstances().catch(() => (instances = []))
 		]);
+		const policy = await pendingPolicy(machineId);
+		prepareOnOpen = policy.enabled;
+		pendingExpiry = policy.expiry_minutes;
 		const data = template?.data ?? {};
 		name = data.name ?? '';
 		scope = data.scope ?? '';
@@ -229,6 +235,7 @@
 			if (!data.name) throw new Error($i18n.t('Enter a name.'));
 			if (machineId) {
 				await templatesApi(path(machineId), 'PATCH', data);
+				await savePendingPolicy(machineId, scope === 'chat' && prepareOnOpen, pendingExpiry);
 				await refreshServers();
 			} else {
 				const row = await templatesApi('', 'POST', {
@@ -236,6 +243,7 @@
 					connection_id: connectionId,
 					data
 				});
+				await savePendingPolicy(row.machine_id, scope === 'chat' && prepareOnOpen, pendingExpiry);
 				await refreshServers();
 				await onCreate(row.machine_id);
 			}
@@ -456,6 +464,19 @@
 							/>
 						</div>
 					</UserSettingRow>
+					{#if scope === 'chat'}
+						<UserSettingRow description="Reuse one unused conversation per person, project and template. Terminal commands or file changes protect it from expiry." let:labelId>
+							<span slot="label">Prepare environment on New Chat</span>
+							<Switch ariaLabelledbyId={labelId} bind:state={prepareOnOpen} disabled={busy} />
+						</UserSettingRow>
+						{#if prepareOnOpen}
+							<label class="flex items-center justify-between gap-3 text-sm">
+								Expire unused conversations after (minutes)
+								<input aria-label="Pending conversation expiry minutes" type="number" min="1" max="1440" bind:value={pendingExpiry} class="w-20 rounded border p-1" />
+							</label>
+							<p class="text-xs text-base-500">Expiry deletes the unused chat and its files. Idle shutdown only stops its container.</p>
+						{/if}
+					{/if}
 				</UserSettingSection>
 
 				<div class="mt-1">

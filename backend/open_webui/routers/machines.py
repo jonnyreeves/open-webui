@@ -50,6 +50,8 @@ log = logging.getLogger(__name__)
 
 router = APIRouter()
 router.include_router(templates_router, prefix='/templates')
+from open_webui.routers.pending_chats import router as pending_chats_router
+router.include_router(pending_chats_router, prefix='/pending-chats')
 
 STREAMING_CONTENT_TYPES = ('application/octet-stream', 'image/', 'application/pdf', 'text/event-stream')
 ADMIN_API_PATHS = ('api/v1/policies', 'api/v1/status', 'api/v1/terminals')
@@ -576,6 +578,10 @@ async def _proxy_machine(server_id, path, request, user, *, context, browser_aut
     if safe_path is None:
         return JSONResponse({'error': 'Invalid path'}, status_code=400)
 
+    if context.get('chat_id') and request.method not in ('GET', 'HEAD', 'OPTIONS') and safe_path.rstrip('/') != 'files/cwd' and not safe_path.startswith('api/terminals'):
+        from open_webui.models.pending_chats import use_chat
+        await use_chat(context['chat_id'])
+
     target_url = f'{base_url}/{safe_path}'
 
     # Check the path aiohttp will send, relative to the configured server root.
@@ -945,8 +951,13 @@ async def _proxy_terminal_websocket(
                         if msg['type'] == 'websocket.disconnect':
                             break
                         elif 'bytes' in msg and msg['bytes']:
+                            if session_id and chat_id:
+                                from open_webui.models.pending_chats import use_chat
+                                await use_chat(chat_id)
                             await upstream.send_bytes(msg['bytes'])
                         elif 'text' in msg and msg['text']:
+                            # PTY keyboard input is binary. JSON resize/activity/ack/ping
+                            # frames are control traffic, not evidence of user work.
                             await upstream.send_str(msg['text'])
                 except Exception:
                     with suppress(Exception):

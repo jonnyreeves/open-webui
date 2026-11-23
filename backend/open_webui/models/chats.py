@@ -916,6 +916,10 @@ class ChatTable:
                 if chat_item is None:
                     return None
 
+                if any(m.get("role") == "user" for m in chat_message_list(chat)):
+                    from open_webui.models.pending_chats import mark_used
+                    await mark_used(session, id)
+
                 stored = chat_item.chat or {}
                 updated = {**stored, **chat}
                 if 'machine_id' in chat:
@@ -1408,6 +1412,8 @@ class ChatTable:
                 parent_id = existing.get('parentId') if existing else user_message.get('parentId')
                 if parent_id is not None and parent_id not in messages:
                     raise HTTPException(409, 'Parent message no longer exists.')
+                from open_webui.models.pending_chats import mark_used
+                await mark_used(db, chat_id)
                 message = existing or (
                     dict(user_message)
                     if chat.user_id == user.id
@@ -1474,6 +1480,9 @@ class ChatTable:
                 if chat_item is None:
                     return None
 
+                if message.get('role') == 'user':
+                    from open_webui.models.pending_chats import mark_used
+                    await mark_used(session, id)
                 chat = chat_item.chat or {}
                 self._repair_chat_current_id(chat)
 
