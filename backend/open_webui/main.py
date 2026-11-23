@@ -454,6 +454,8 @@ async def lifespan(app: FastAPI):
     from open_webui.utils.automations import scheduler_worker_loop
 
     app.state.scheduler_worker_loop = asyncio.create_task(scheduler_worker_loop(app))
+    from open_webui.routers.pending_chats import cleanup_loop
+    app.state.pending_chat_cleanup = asyncio.create_task(cleanup_loop())
 
     if await Config.get('models.base_models_cache'):
         try:
@@ -544,6 +546,7 @@ async def lifespan(app: FastAPI):
     app.state.periodic_usage_pool_cleanup.cancel()
     app.state.periodic_session_pool_cleanup.cancel()
     app.state.scheduler_worker_loop.cancel()
+    app.state.pending_chat_cleanup.cancel()
 
     await publish_event(request, EVENTS.SYSTEM_SHUTDOWN_COMPLETED, source='system')
 

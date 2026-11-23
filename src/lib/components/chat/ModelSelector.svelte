@@ -15,6 +15,9 @@
 	export let selectedModels = [''];
 	export let onModelSelect: (models: string[]) => void = () => {};
 	export let disabled = false;
+	export let environmentStatus = '';
+	export let environmentError = '';
+	export let retryEnvironment: () => void = () => {};
 	export let multipleEnabled = true;
 
 	export let showSetDefault = true;
@@ -78,6 +81,17 @@
 	}
 </script>
 
+{#if environmentStatus}
+	<div class="max-w-64 text-xs" role={environmentStatus === 'error' ? 'alert' : 'status'} aria-live="polite">
+		{#if environmentStatus === 'error'}
+			<span title={environmentError}>Environment setup failed</span>
+			<button type="button" class="ms-2 underline" on:click={retryEnvironment}>Retry</button>
+		{:else}
+			<span aria-hidden="true">⟳</span>
+			{environmentStatus === 'discovering' ? 'Discovering coding-agent models…' : 'Starting development environment…'}
+		{/if}
+	</div>
+{:else}
 <div class="flex min-w-0 max-w-full flex-col items-start">
 	<div class="flex min-w-0 max-w-full">
 		<div class="min-w-0 max-w-full overflow-hidden">
@@ -108,3 +122,5 @@
 		</div>
 	</div>
 </div>
+
+{/if}

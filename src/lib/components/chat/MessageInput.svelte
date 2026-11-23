@@ -176,6 +176,9 @@
 	export let contextCompactionEnabled = false;
 	export let embedded = false;
 	export let autofocus = true;
+	export let environmentStatus = '';
+	export let environmentError = '';
+	export let retryEnvironment: () => void = () => {};
 	// Recorded audio goes to the host when given (note chats), otherwise it is attached to the message.
 	export let onRecordedAudio: ((file: File) => unknown) | null = null;
 	export let callActive = false;
@@ -3061,6 +3064,7 @@
 									{#if $models !== null}
 										<div class="flex min-w-0 max-w-[10rem] items-center sm:max-w-[13rem]">
 											<ModelSelector
+                                                {environmentStatus} {environmentError} {retryEnvironment}
 												bind:this={modelSelector}
 												multipleEnabled={multipleModels}
 												bind:selectedModels
@@ -3234,7 +3238,7 @@
 															? 'bg-base-1000 text-base-0 hover:bg-base-900 dark:bg-base-0 dark:text-base-1000 dark:hover:bg-base-100 '
 															: 'text-base-0 bg-base-200 dark:text-base-900 dark:bg-base-700 disabled'} transition rounded-full p-[0.3125rem] self-center"
 														type="submit"
-														disabled={prompt === '' && files.length === 0}
+														disabled={!!environmentStatus || (prompt === '' && files.length === 0)}
 													>
 														<svg
 															xmlns="http://www.w3.org/2000/svg"

@@ -51,6 +51,9 @@
 
 	export let history;
 	export let chatId = '';
+	export let environmentStatus = '';
+	export let environmentError = '';
+	export let retryEnvironment: () => void = () => {};
 	export let onNewFolderChat: () => void = () => {};
 	export let folderTabActions: import('svelte').Snippet | undefined = undefined;
 
@@ -152,6 +155,7 @@
 
 {#snippet composer(placeholder = '')}
 	<MessageInput
+        {environmentStatus} {environmentError} {retryEnvironment}
 		{selectedMachineId}
 		{machineSkills}
 		{chatId}
